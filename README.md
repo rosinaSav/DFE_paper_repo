@@ -11,7 +11,7 @@ Keightley_manual.py: for comparing the frequency of segregating sites and minor 
 Keightley_stability.py: to determine the false positive rate of multiDFE
 convert_region_to_CDS.py: to convert motif hit/control positions specified relative to an exonic subregion into coordinates relative to a full CDS
 degenerate_SFS.py: to modify an SFS so as to remove the effects of motif degeneracy. Also creates hit/control position files that specify the motif degeneracy of the possible substitutions at each site.
-et_core_and_flank_files.py: to extract exonic subregion sequences and coordinates.
+get_core_and_flank_files.py: to extract exonic subregion sequences and coordinates.
 mDFEest_input.py: to prepare input file for multiDFE.
 norm_ds_with_new_controls.py: to calculate normlaized dS and motif density.
 pick_control_sites.py: to pick control sites to go with a set of motif hits sites
