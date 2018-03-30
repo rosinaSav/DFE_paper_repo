@@ -1,3 +1,7 @@
+***DISCLAIMER***
+The code in this repository has not been packaged to be run out of the box. For instance, there are many software dependencies that haven't been explicitly documented, and the documentation regarding how to run the scripts is also insufficiently documented for external use. The purpose of the repository is to serve as an explicit record of the analyses performed in the paper. It is thus primarily a supplement to the methods. However, if anybody did wish to reuse any of the code and was having issues or questions, please do contact me (rosinasavisaar@gmail.com) and we'll get it to work.
+****************
+
 This is the source code for Savisaar and Hurst paper on the distribution of fitness effects at ESE sites.
 
 bedtools_games.py, conservation.py, ensembl_ops.py, housekeeping.py, nucleotide_comp.py, 
