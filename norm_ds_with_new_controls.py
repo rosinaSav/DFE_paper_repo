@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Calculate normalized dS for a set of sequences and a set of motifs.
+'''
+
 from bedtools_games import Feature_Set
 import conservation
 from housekeeping import flatten, parse_arguments, remove_file, run_in_parallel, run_process, update_counter
@@ -12,20 +17,26 @@ def CpG_frequency(fasta, hits, controls):
     '''
     Compare the CpG frequency at hit vs control sites.
     '''
+    #parse fasta into dictionary
     names, seqs = rw.read_fasta(fasta)
     seqs = {names[i]: seqs[i] for i in range(len(names))}
     hit_site_counter = 0
     hit_CpG_counter = 0
     control_site_counter = 0
     control_CpG_counter = 0
+    #for each transcript
     for name in hits:
         seq = seqs[name]
+        #get all dinucleotides in hits/controls
         current_true_dints = [seq[i - 1: i + 1] for i in hits[name] if i != 0] + [seq[i: i + 2] for i in hits[name] if i != (len(seq) - 1)]
         current_control_dints = [seq[i - 1: i + 1] for i in controls[name] if i != 0] + [seq[i: i + 2] for i in controls[name] if i != (len(seq) - 1)]
+        #store total number of sites
         hit_site_counter = hit_site_counter + len(current_true_dints)
         control_site_counter = control_site_counter + len(current_control_dints)
+        #check how many are CpG
         hit_CpG_counter = hit_CpG_counter + len([i for i in current_true_dints if i == "CG" or i == "GC"])
         control_CpG_counter = control_CpG_counter + len([i for i in current_control_dints if i == "CG" or i == "GC"])
+    #calculate overall frequency
     hit_freq = hit_CpG_counter/hit_site_counter
     control_freq = control_CpG_counter/control_site_counter
     print("Hit CpG frequency: {0}.".format(hit_freq))
@@ -62,6 +73,10 @@ def get_new_method_results(hit_file, control_file, hit_phylip, control_phylip, c
     '''
     Calculate normalized dS.
     '''
+    #if you're meant to ignore degenerate substitutions,
+    #the degeneracy file will have been supplied as the hit file
+    #and the real hit file name can be derived from the name of the
+    #degeneracy file
     if "_degen.txt" in hit_file:
         degen_hits_file = hit_file
         degen_controls_file = control_file
@@ -70,6 +85,7 @@ def get_new_method_results(hit_file, control_file, hit_phylip, control_phylip, c
     else:
         degen_hits_file = None
         degen_controls_file = None
+    #read in hit and control positions
     hits = parse_basinhoppin_pos(hit_file)
     controls = parse_basinhoppin_pos(control_file)
 
@@ -97,6 +113,7 @@ def get_new_method_results(hit_file, control_file, hit_phylip, control_phylip, c
 
         remove_file(control_phylip)
 
+        #report CpG frequency in hits vs controls
         hit_freq, control_freq = CpG_frequency(fasta, hits, controls)
         print("Hit dS: {0}.".format(hit_ds))
         print("Control dS: {0}.".format(control_ds))
@@ -168,6 +185,7 @@ def get_sim_p_core(simulations, hits, controls, fasta, correspondances, alignmen
     for sim in simulations:
         counter = update_counter(counter, 10)
 
+        #shuffle hits and controls
         if not reverse_site_numbers:
             temp_hits, temp_controls = shuffle_dictionaries(hits, controls)
         else:
@@ -176,9 +194,11 @@ def get_sim_p_core(simulations, hits, controls, fasta, correspondances, alignmen
         hit_phylip = "temp_data/temp{0}.phy".format(random.random())
         control_phylip = "temp_data/temp{0}.phy".format(random.random())
 
+        #write phylip alignments with the pseudo-hit and pseudo-control positions
         conservation.write_hits_to_phylip(fasta, temp_hits, hit_phylip, correspondances, alignments, degen_hits_file)
         conservation.write_hits_to_phylip(fasta, temp_controls, control_phylip, correspondances, alignments, degen_controls_file)
 
+        #get PAML estimates
         hit_ds = conservation.run_codeml(hit_phylip, "temp_data/temp_{0}.phy".format(random.random()), method = method)[statistic]
         control_ds = conservation.run_codeml(control_phylip, "temp_data/temp_{0}.phy".format(random.random()), method = method)[statistic]
         sim_norm_ds.append((hit_ds - control_ds)/control_ds)
@@ -188,7 +208,7 @@ def get_sim_p_core(simulations, hits, controls, fasta, correspondances, alignmen
     return(sim_norm_ds)    
 
 def main():
-    description = "Use different sets of hit and control sites to calculate the normalized dS of a dataset."
+    description = "Calculate the normalized dS of a dataset."
     args = parse_arguments(description, ["dataset", "feature_set", "genome", "families_file", "fasta", "hit_file_prefix", "motifs_file", "correspondances", "alignments", "suffix", "trials", "trial_file", "old_trial_file", "region_fasta", "old_motif_format", "nonsense", "no_families", "newest_only", "top_set_only", "calc_p", "reverse_site_numbers", "matched", "degen", "regions"], ints = [10], flags = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
     dataset, feature_set, genome, families_file, fasta, hit_file_prefix, motifs_file, correspondances, alignments, suffix, trials, trial_file, old_trial_file, region_fasta, old_motif_format, nonsense, no_families, newest_only, top_set_only, calc_p, reverse_site_numbers, matched, degen, regions = args.dataset, args.feature_set, args.genome, args.families_file, args.fasta, args.hit_file_prefix, args.motifs_file, args.correspondances, args.alignments, args.suffix, args.trials, args.trial_file, args.old_trial_file, args.region_fasta, args.old_motif_format, args.nonsense, args.no_families, args.newest_only, args.top_set_only, args.calc_p, args.reverse_site_numbers, args.matched, args.degen, args.regions
 
@@ -196,6 +216,7 @@ def main():
 
     print(suffix)
 
+    #set up feature set and families
     fs = Feature_Set(feature_set, genome)
     fs.set_dataset(dataset)
     if no_families:
@@ -244,17 +265,24 @@ def main():
             seed_kmers = 1
         else:
             seed_kmers = None
-        
+
+        #you can do this for loads of trials
+        #useful as a negative control if you're generating a new set of nonsense motifs
+        #each time
         for trial in range(trials):
 
             print(trial)
 
             trial_output = [trial]
 
+            #if you're meant to generate a load of nonsense motifs rather than using real motifs
             if nonsense:
                 if old_trial_file != "None":
+                    #read in the intended nucleotide composition of the nonsense
+                    #motifs from file
                     scaled_comp = [float(i) for i in old_trials[trial]]
                 else:
+                    #pick nonsense motifs nucleotide composition by chance
                     comp = [random.random() for i in range(4)]
                     scaled_comp = [i/np.sum(comp) for i in comp]
                 comp_dict = {i: scaled_comp[pos] for pos, i in enumerate(nc._canon_bases_)}

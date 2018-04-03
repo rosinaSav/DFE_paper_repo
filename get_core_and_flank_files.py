@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Extract exon end/core regions from feature set.
+'''
+
 from bedtools_games import setup
 from housekeeping import parse_arguments
 
@@ -12,17 +17,21 @@ def main():
     families_file = "general/filtered_hg38_85_pc_multiexon_families.txt"
     dataset = "filtered_hg38_85_pc_multiexon"
 
+    #prepare feature set, get necessary genomic features
     fs = setup(features_file, genome, dataset, families_file = families_file)
     exons = fs.get_exons()
     CDS = fs.get_CDS()
 
+    #pick a random member from each family
     picked = fs.pick_random_members()
     exons = {i: exons[i] for i in picked}
     CDS = {i: CDS[i] for i in picked}
 
     if start_only:
+        #only the 5' end
         fs.get_exon_beginnings(exons, CDS, file_prefix = "general/{0}".format(dataset), write_to_fasta = True)
-    else:    
+    else:
+        #both flanks and the core
         fs.get_exon_cores_and_flanks(exons, CDS, file_prefix = "general/{0}".format(dataset), write_to_fasta = True)
 
 if __name__ == "__main__":

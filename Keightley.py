@@ -1,7 +1,15 @@
+'''
+Author: Rosina Savisaar.
+Run mDFEest.
+'''
+
 from housekeeping import parse_arguments, remove_file, run_process
 import read_and_write as rw
 
 def mDFEest(model, input_file, n_spikes = None, repetitions = None, fold_SFS = True, pop_change = False, seed = None):
+    '''
+    Wraps call to multiDFEest.
+    '''
     flags = []
 
     if fold_SFS:
@@ -14,8 +22,10 @@ def mDFEest(model, input_file, n_spikes = None, repetitions = None, fold_SFS = T
     else:
         pop_change = 1
 
+    #convert the English distribution names into multiDFEest model codes
     if model == "lognormal":
         model_code = 4
+        #parameter number for calculating AIC
         par_number = 2
     elif model == "gamma":
         model_code = 2
@@ -48,6 +58,7 @@ def mDFEest(model, input_file, n_spikes = None, repetitions = None, fold_SFS = T
     input_file_short = input_file.split("/")
     input_file_short = input_file_short[-1]
 
+    #do the analysis in the directory where multiDFEest is stored
     if not os.path.exists("../multidfe/{0}".format(input_file_short)):
         run_process(["cp", input_file, "../multidfe"])
     MDE_output = "{0}.MAXL.out".format(input_file_short)
@@ -59,10 +70,13 @@ def mDFEest(model, input_file, n_spikes = None, repetitions = None, fold_SFS = T
         arguments = [seed_string] + arguments
     arguments.extend(flags)
     print(" ".join([str(i) for i in arguments]))
+    #run multiDFEest
     run_process(arguments)
+    #parse output
     output = rw.read_many_fields(MDE_output, "\t")[0]
     output = [i.split(":") for i in output if ":" in i]
     output = {i[0]: float(i[1]) for i in output}
+    #get the log likelihood and calculate AIC
     ll = output["L"]
     print("\n")
     print(par_number)
@@ -78,6 +92,9 @@ def mDFEest(model, input_file, n_spikes = None, repetitions = None, fold_SFS = T
     return(output)
 
 def write_mDFEest_output(output, file, change_mode):
+    '''
+    Write output from multiDFEest to file.
+    '''
     file.write("{0}\t".format(output["model"]))
     file.write("{0}\t".format(str(change_mode)))
     file.write("{0}\t".format(output["AIC"]))
@@ -93,6 +110,7 @@ def main():
     args = parse_arguments(description, ["hit_file", "control_file", "SNP_file", "SNP_number", "input_file", "output_file", "seed", "fixed_model", "new_input", "shuffle", "fix_pop_change"], ints = [3], flags = [8, 9, 10])
     hit_file, control_file, SNP_file, SNP_number, input_file, output_file, seed, fixed_model, new_input, shuffle, fix_pop_change = args.hit_file, args.control_file, args.SNP_file, args.SNP_number, args.input_file, args.output_file, args.seed, args.fixed_model, args.new_input, args.shuffle, args.fix_pop_change
 
+    #if you want to generate a new input file rather than reading in an existing one
     if new_input:
         remove_file("../multidfe/{0}".format(input_file.split("/")[-1]))
         arguments = ["python3", "mDFEest_input.py", hit_file, control_file, SNP_file, SNP_number, input_file]
@@ -105,16 +123,22 @@ def main():
     else:
         seed = float(seed)
 
+    #if you want to run it only with a population size change model,
+    #rather than both a model assuming population size change and a fixed population
+    #size model
     if fix_pop_change:
         pop_change = [True]
     else:
         pop_change = [False, True]
 
     if fixed_model == "None":
+        #all possible models
         allowed = ["lognormal", "gamma", "beta", "spikes", "steps", "fixed six spikes"]
         spike_range = [2, 6]
     else:
+        #only the spcified model
         allowed = [fixed_model]
+        #only two-spike models
         spike_range = [2, 3]
 
     with open(output_file, "w") as file:

@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Run mDFEest with shuffled input to check the false positive rate.
+'''
+
 from CpG_sim_Keightley import mDFEest
 from housekeeping import parse_arguments, remove_file, run_process
 import random
@@ -15,8 +20,10 @@ def main():
             temp_controls_file = "temp_data/controls_file{0}.txt".format(random.random())
             temp_input_file = "temp_data/input_file{0}.txt".format(random.random())
 
+            #shuffle hits and controls for negative control
             run_process(["python3", "shuffle_hits_and_controls.py", hits_file, controls_file, temp_hits_file, temp_controls_file, hit_reduce, control_reduce])
 
+            #generate multiDFEest input file
             run_process(["python3", "mDFEest_input.py", temp_hits_file, temp_controls_file, SNP_file, SNP_number, temp_input_file])
 
             output = mDFEest("beta", temp_input_file, pop_change = True)
@@ -27,6 +34,7 @@ def main():
 
             file.write("{0}\t{1}\t{2}".format(sim, output["Nes_0.0_0.1"], output["Nes_0.1_1.0"]))
 
+            #if you also want to run with fixed population size
             if const_pop:
                 output = mDFEest("beta", temp_input_file, pop_change = False)
 

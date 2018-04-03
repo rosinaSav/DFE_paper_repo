@@ -1,9 +1,22 @@
+'''
+Author: Rosina Savisaar.
+Prepare input file for running MultiDFEest.
+'''
+
 from housekeeping import list_to_dict, parse_arguments, print_elements, run_process
 from INSIGHT import shuffle_dictionaries
 import read_and_write as rw
 
 def get_SFS(positions, SNPs, to_remove, N):
+    '''
+    Given two dictionaries with transcripts IDs as keys and one with hit positions as values
+    and another with subdictionaries as values (containing SNP positions as keys along with
+    their minor allele counts as values), generate a site frequency spectrum.
+    to_remove contains positions where SNP positions were filtered out.
+    These must be ignored when making the SFS.
+    '''
     N = int(N)
+    #note that for multiDFEest, the SFS must have a 0 category
     SFS = {i: 0 for i in range(N + 1)}
     for trans in positions:
         if trans in to_remove:
@@ -11,6 +24,7 @@ def get_SFS(positions, SNPs, to_remove, N):
             for position in positions[trans]:
                 if position not in to_remove[trans]:
                     if position not in SNPs[trans]:
+                        #update 0 category
                         SFS[0] = SFS[0] + 1
                     else:
                         SFS[SNPs[trans][position]] = SFS[SNPs[trans][position]] + 1
@@ -20,6 +34,9 @@ def get_SFS(positions, SNPs, to_remove, N):
     return(SFS)
 
 def parse_pos(file):
+    '''
+    Parse a hits/controls positions file.
+    '''
     pos_list = rw.read_many_fields(file, "\t")
     pos_dict = list_to_dict(pos_list, 0, 1)
     pos_dict = {i: [int(j) for j in pos_dict[i].split(",") if j != ""] for i in pos_dict}

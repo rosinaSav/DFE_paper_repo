@@ -1,3 +1,9 @@
+'''
+Author: Rosina Savisaar.
+Functions for interacting with the Ensembl database and for processing data
+retrieved from it.
+'''
+
 from bedtools_games import sort_coords
 from Bio.Alphabet import IUPAC
 from Bio.Seq import Seq

@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Modue that contains custom statistical methods.
+'''
+
 from housekeeping import run_process
 import numpy as np
 import random
@@ -53,7 +58,7 @@ def chi_test(observed, expected):
 
 def correct_multiple_testing(p_values, method):
     '''
-    Given a slist of p-values, correct them for multiple testing.
+    Given a list of p-values, correct them for multiple testing.
     '''
     p_values = [str(i) for i in p_values]
     p_values.append(method)
@@ -69,7 +74,9 @@ def correct_multiple_testing(p_values, method):
     return(corrected_values)
 
 def fishers_exact_test(observed, expected):
-    '''Perform a Fisher's exact test on an observed and an expected proportion'''
+    '''
+    Perform a Fisher's exact test on an observed and an expected proportion
+    '''
     string_to_R = ",".join([str(observed[0]), str(observed[1]), str(expected[0]), str(expected[1]), "greater"])
     results = run_process(["Rscript", "R_scripts/fisher_test.r", string_to_R])
     results = results.rstrip("\"\n")
@@ -82,7 +89,9 @@ def fishers_exact_test(observed, expected):
     return(results)
 
 def fishers_exact_test_enrichment(element, sample, population, alt):
-    '''Perform a Fisher's exact test to check whether a given element is enriched in a sample when compared to a population.'''
+    '''
+    Perform a Fisher's exact test to check whether a given element is enriched in a sample when compared to a population.
+    '''
     N = len(population)
     n = len(sample)
     if len(sample) >= len(population):

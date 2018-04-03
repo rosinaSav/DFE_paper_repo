@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Module containing functions relevant to evolutionary conservation and population diversity.
+'''
+
 import csv
 import re
 import os
@@ -663,137 +668,6 @@ def dS_from_hits(motifs, alignment_folder_name, input_dict_file_name, n_sim = No
             p = None
         return({"dS": real_ds, "mean simulated dS": mean_sim_ds, "normalized dS": norm_ds, "effective p": p})
 
-def effect_on_structure(pairs, pairs_coords, window_size, CDS, motifs, motifs_extended, n_sim, correspondances_file_name, alignment_folder_name, transcripts, fs, genome):
-    #number of fourfold degenerate sites within window_size bp to a desert hit that differ between the two species
-    site_count = 0
-    #number of such sites where the orthologous base increases site accessibility
-    increase_count = 0
-    #same for simulants
-    sim_site_counts = [0 for i in range(n_sim)]
-    sim_increase_counts = [0 for i in range(n_sim)]
-    motif_length = len(motifs[0])
-    #position of the first motif base within the window_size long region
-    first_base = int((window_size - motif_length)/2)
-    last_base = first_base + motif_length - 1
-    gene_name_dict = fs.get_gene_name_dict(transcripts)
-    correspondances = rw.read_many_fields(correspondances_file_name, ",")
-    correspondance_dict = list_to_dict(correspondances, 0, 1)
-    plfold_output_folder = "temp_data/temp_folder{0}".format(random.random())
-    make_dir(plfold_output_folder)
-    output = {}
-    real_acc = struct.accessibility_paired(pairs, window_size, motifs, output_folder = plfold_output_folder)
-    output["median ratio"] = real_acc["median ratio"]
-    output["p"] = real_acc["p"]
-    category = 1
-    for pos, pair in enumerate(pairs):
-        print(pos)
-        current_record = pairs_coords[pos][category]
-        current_trans_id, CDS_pos, record_mapping = effect_on_structure_prepare(current_record, CDS, fs, gene_name_dict, window_size)
-        current_orth_id = correspondance_dict[current_trans_id]
-        phy_file_name = "{0}/{1}_{2}.phy".format(alignment_folder_name, current_trans_id, current_orth_id)
-        aligned_sequences = [list(i.seq) for i in SeqIO.parse(phy_file_name, "phylip-sequential")]
-        current_CDS_seq = "".join([i for i in aligned_sequences[0] if i != "-"])
-        fourfold_deg = nc.get_4fold_deg(current_CDS_seq)
-        CDS_pos = [i for i in CDS_pos if i in fourfold_deg]
-        if CDS_pos:
-            possible_pos = {j: [base_pos for base_pos, i in enumerate(aligned_sequences[0]) if (i == j) and (base_pos in fourfold_deg)] for j in nc._canon_bases_}
-            true_score = real_acc["score list"][category][pos]
-            CDS_pos = get_aligned_positions(aligned_sequences, CDS_pos)
-            for position in CDS_pos:
-                if aligned_sequences[0][position] != aligned_sequences[1][position]:
-                    orth_base = aligned_sequences[1][position]
-                    score, orig_pos = effect_on_structure_mutated_score(pair, category, position, record_mapping, window_size, motif_length, last_base, orth_base, output_folder = plfold_output_folder)
-                    site_count = site_count + 1
-                    if score > true_score:
-                        increase_count = increase_count + 1
-                    true_base = aligned_sequences[0][position]
-                    true_coords = pairs_coords[pos][category]
-                    for sim in range(n_sim):
-                        sim_position = random.choice(possible_pos[true_base])
-                        sim_real_score, sim_sim_score = effect_on_structure_simulation(last_base, sim_position, position, true_coords, genome, orth_base, orig_pos, window_size, motif_length, output_folder = plfold_output_folder)
-                        sim_site_counts[sim] = sim_site_counts[sim] + 1
-                        if sim_sim_score > sim_real_score:
-                            sim_increase_counts[sim] = sim_increase_counts[sim] + 1
-                            
-    if site_count > 0:
-        mutation_score = increase_count/site_count
-        sim_mutation_scores = np.divide(np.array(sim_increase_counts), np.array(sim_site_counts))
-        mutation_p = ms.calc_eff_p(mutation_score, sim_mutation_scores, greater = False)
-    else:
-        mutation_score = None
-        mutation_p = None
-    output["mutation score"] = mutation_score
-    output["site count"] = site_count
-    output["mutation p"] = mutation_p
-    shutil.rmtree(plfold_output_folder)
-    return(output)
-
-def effect_on_structure_mutated_score(pair, category, position, record_mapping, window_size, motif_length, last_base, orth_base, output_folder = None):
-    temp_seq = list(pair[category])
-    orig_pos = record_mapping[position]
-    temp_seq[orig_pos] = orth_base
-    temp_seq = "".join(temp_seq)
-    structure_dict = struct.get_bp_prob(temp_seq, int(window_size - motif_length), int(window_size - motif_length), motif_length, output_folder = output_folder)
-    score = structure_dict[last_base, (motif_length - 1)]
-    return(score, orig_pos)
-
-
-def effect_on_structure_prepare(current_record, CDS, fs, gene_name_dict, window_size, test_mode = False):
-    current_record[0] = current_record[0].lstrip("chr")
-    current_CDS = CDS[current_record[3]]
-    temp = "temp_data/temp_bed_file{0}.bed".format(random.random())
-    rw.write_to_csv([current_record], temp, "\t")
-    #the regions can also overlap with introns so you need to be sure to only get the CDS bits for the next step to work
-    #remove phase information
-    CDS_for_bedops = [i[0] for i in current_CDS]
-    neg_strand = False
-    if current_record[5] == "-":
-        neg_strand = True
-        CDS_for_bedops = [i for i in reversed(CDS_for_bedops)]
-    record_mapping = CDS_to_bed_mapping(current_record, CDS_for_bedops)
-    CDS_only_records = intersect_bed_return_bed(temp, CDS_for_bedops, use_bedops = True, chrom = current_record[0], intersect = True)
-    if not CDS_only_records:
-        print("No parts of the peak overlap with CDSs. This should be impossible.")
-        print(CDS_for_bedops)
-        print(current_record)
-        raise Exception
-
-    if len(CDS_only_records) > 1:
-        print("The peak is spread out across more than one exon.")
-        if not test_mode:
-            print(current_record)
-            print(current_CDS)
-            print(CDS_only_records)
-            raise Exception
-    CDS_pos = []
-    #there could be several if there is a really tiny intron within the region
-    #but then orig_pos would be wrong so I ned to make sure there are no such cases
-    for record in CDS_only_records:
-        CDS_pos.extend(bed_to_CDS_indices(record, current_CDS))
-    CDS_pos = sorted(CDS_pos)
-    os.remove(temp)
-    if len(CDS_pos) > window_size:
-        print("Too many positions were retrieved in the CDS. Something's not right.")
-        print(CDS_for_bedops)
-        print(current_record)
-        print(CDS_pos)
-        raise Exception
-    return(CDS_for_bedops[0][4], CDS_pos, record_mapping)
-
-def effect_on_structure_simulation(last_base, sim_position, position, true_coords, genome, orth_base, orig_pos, window_size, motif_length, output_folder = None):
-    move = sim_position - position
-    sim_coords = true_coords.copy()
-    sim_coords[1] = sim_coords[1] + move
-    sim_coords[2] = sim_coords[2] + move
-    sim_seq = get_sequence(sim_coords, genome, impose_strand = True, bed_input = True)
-    local_window_size = int(window_size - motif_length)
-    sim_real_score = struct.get_bp_prob(sim_seq, local_window_size, local_window_size, motif_length, output_folder = output_folder)[last_base, (motif_length - 1)]
-    temp_sim_seq = list(sim_seq)
-    temp_sim_seq[orig_pos] = orth_base
-    temp_sim_seq = "".join(temp_sim_seq)
-    sim_sim_score = struct.get_bp_prob(temp_sim_seq, local_window_size, local_window_size, motif_length, output_folder = output_folder)[last_base, (motif_length - 1)]
-    return(sim_real_score, sim_sim_score)
-
 def extend_family(blast_results, families, query):
     '''
     Given a gene identifier (query), find all genes that are connected to it
@@ -996,61 +870,6 @@ def get_aligned_nt_sequence_from_prot(nt_sequence, aligned_prot_sequence):
             codon_counter = codon_counter + 3
     return(aligned_sequence)
 
-##def get_aligned_positions(aligned_sequences, positions):
-##    '''
-##    Given two aligned DNA sequences and indices relative to an unaligned version of the first sequence,
-##    convert the indices into indices relative to the aligned version of the first sequence.
-##    '''
-##    positions = np.array(positions)
-##    if "-" in aligned_sequences[0]:#no need to make adjustments if there are no indels in the alignment
-##        aligned_sequences[0] = np.array(aligned_sequences[0])
-##        hyphens = np.where(aligned_sequences[0] == "-")[0] #where are the dashes in the alignment?
-##        counter = 0#keeps track of by how much the current motif position needs to be shifted to the right
-##        no_more_hyphens = False#goes to True when all indel positions have been processed
-##        pos_index = 0#keeps track of the motif position that is currently being processed
-##        repeat = False
-##        while pos_index < len(positions):#until all motif positions have been processed
-##            local_counter = 0#keeps track of the shift due to the current contiguous indel codon block.
-##            if not no_more_hyphens:#until all indels have been taken into account
-##                while hyphens[0] <= positions[pos_index]:#if any dashes precede or coincide with the first motif position (unaligned), thus causing a shift
-##                    local_counter = local_counter + 1 #update this counter to account for the motif position shifting to the right
-##                    contig_counter = 0#counts the number of contiguous codon indels
-##                    if len(hyphens) != 1:#if the current indel codon is not the last one
-##                        while hyphens[contig_counter+1] - hyphens[contig_counter] == 1:#if the following hyphen is next to the current one
-##                            local_counter = local_counter + 1#update counter to account for the motif position shifting downstream
-##                            contig_counter = contig_counter + 1#update counter to show you have another contiguous indel codon
-##                            if contig_counter+1 == len(hyphens):#if the current indel codon is the last one, break out of the loop to avoid getting an error when it tries to check the next indel codon for contiguity.
-##                                break
-##                        hyphens = np.delete(hyphens, range(contig_counter))#once you've either processed all indel codons or the next indel codon is not contiguous to the current one, delete all the indel codons in the current contiguous block.
-##                    hyphens = np.delete(hyphens, 0)#because contig counter gives you the number of contiguous codons - 1 so even if you've deleted 0:contig_counter, you still need to delete one more indel codon.
-##                    if len(hyphens) < 1:
-##                        no_more_hyphens = True
-##                        break
-##            counter = counter + local_counter#add the shift due to the current contiguous block of indel codons (possibly just one codon)
-##            if repeat:#if this is not the only block of indel codons to precede the current motif position, only add the shift due to the current block
-##                positions[pos_index] = positions[pos_index] + local_counter
-##            else:#otherwise shift the motif position by the total shift that has accumulated
-##                positions[pos_index] = positions[pos_index] + counter
-##            if len(hyphens) > 0:#if all indel codons haven't been deleted
-##                if hyphens[0] <= positions[pos_index]:#if there is another indel codon block in front of or coincident with the current motif position
-##                    repeat = True #go through the loop with the next indel codon block without mocing to the next motif position
-##                else:
-##                    pos_index = pos_index + 1 #move to the next motif position
-##                    repeat = False
-##            else:#otherwise move to the next motif position and then it will shift the motif position but will skip the bit where it increases the shift (because no_more_hyphens is True)
-##                pos_index = pos_index + 1
-##                repeat = False
-##    positions = sorted(list(set(positions)))
-####    positions = [i for i in positions if i < len(aligned_sequences[0])]#to remove motif positions that overlap with the stop codon
-##    excess_counter = 0
-##    for pos in range(len(positions) - 1, 0, -3):
-##        if positions[pos] >= len(aligned_sequences[0]) or positions[pos - 1] >= len(aligned_sequences[0]) or positions[pos - 2] >= len(aligned_sequences[0]):
-##            excess_counter = excess_counter + 1
-##        else:
-##            break
-##    for i in range(excess_counter):
-##        del positions[-3:]
-##    return(positions)
 
 def get_aligned_positions(aligned_sequences, positions):
     '''
@@ -1132,6 +951,11 @@ def get_motif_potential(sequence, motifs, position, motif_lengths, reduction = F
     return(fraction, danger_bases)
 
 def get_relative_SNPs(CDSs, SNP_file_name, CDS_SNP_file_name, seqs, names, genome, get_new_SNPs = False, parse_SNPs = False, remove_GT = False):
+    '''
+    Filter SNP data and convert the locations from chromosomal coordinates
+    to relative CDS coordinates.
+    '''
+    #if you want to get new SNP data from the 1000genomes database
     if get_new_SNPs:
         flat_CDS = [[j[0] for j in i] for i in list(CDSs.values())]
         CDS_bed = "temp_data/temp_{0}.bed".format(random.random())
@@ -1394,6 +1218,10 @@ def input_dict_for_dS(correspondances_file_name, alignment_folder_name, fasta_fi
             file.write("\n")
 
 def INSIGHT(neutral_file, hit_file, freq_threshold, INSIGHT_dir, data_id):
+    '''
+    Run the INSIGHT programme.
+    '''
+    #move to the INSIGHT directory
     run_process(["cp", neutral_file, INSIGHT_dir])
     run_process(["cp", hit_file, INSIGHT_dir])
     current_dir = os.getcwd()
@@ -1473,12 +1301,14 @@ def map_regions_to_CDS(fasta, bed, fs, transcripts, CDS, trans_ids = False):
     '''
     Given a fasta file, a bed file and a set of CDS coordinates, return for each record the relative coordinates to which
     the bed record maps in the corresponding full CDS.
+    (Usually the bed/fasta would correspond to exon cores/flanks and we want to know where they map in the full CDS.)
     '''
     names, seqs = rw.read_fasta(fasta)
     regions_bed = rw.read_many_fields(bed, "\t")
     mapping_to_gene_ids = {}
     for pos, name in enumerate(names):
         mapping_to_gene_ids[name] = {}
+        #we're assuming that the third field in the bed file has the transcript identifier
         trans_id = regions_bed[pos][3]
         if trans_ids:
             mapping_to_gene_ids[name]["idn"] = trans_id
@@ -1489,57 +1319,6 @@ def map_regions_to_CDS(fasta, bed, fs, transcripts, CDS, trans_ids = False):
         current_flank_indices_in_CDS = bed_to_CDS_indices(current_record, CDS[trans_id])
         mapping_to_gene_ids[name]["flank indices in CDS"] = current_flank_indices_in_CDS
     return(mapping_to_gene_ids)
-
-def MSA_motif_cons(input_file, motifs, output_folder, lower_threshold, upper_threshold):
-    motif_lengths = [len(i) for i in motifs]
-    motifs = nc.motif_to_regex(motifs)
-    make_dir(output_folder)
-    unknown = [".", "-"]
-    human = "homo_sapiens"
-    output_dict = {i: [] for i in range(lower_threshold, upper_threshold + 1)}
-    lines = line_count(input_file)
-    print("Total: {0}.".format(lines))
-    with open(input_file, "r") as file:
-        for pos, line in enumerate(file):
-            if pos % 1000 == 0:
-                print(pos)
-            #there's an empty line at the end
-            if line:
-                #to get rid of stuff trailing at the end
-                line = line.rstrip("%\n")
-                line = [i.split("|") for i in line.split("%")]
-                line = [i for i in line if i[-1] == "1"]
-                if len(line) >= lower_threshold:
-                    dashed = {i[0]: i[2] for i in line}
-                    dashless = {i: "".join([j for j in dashed[i] if j not in unknown]) for i in dashed}
-                    #the fourfold deg. sites need to be calculated with regards to a trimmed exon
-                    human_phase = int(line[0][-2])
-                    trim_info, trimmed_human = nc.trim_sequence_report(dashless[human], human_phase)
-                    fourfold_deg = nc.get_4fold_deg(trimmed_human)
-                    if fourfold_deg:
-                        #but then you need to know where the 4fold degs sit in the original sequence
-                        fourfold_deg = [i + trim_info[0] for i in fourfold_deg]
-                        human_pos = nc.get_motif_set_density(motifs, motif_lengths, dashless[human], concat = True)["positions"]
-                        human_pos = [i for i in human_pos if i in fourfold_deg]
-                        if human_pos:
-                            human_pos = get_aligned_positions([list(dashed[human]), []], human_pos)
-                            all_pos = {i: nc.get_motif_set_density(motifs, motif_lengths, dashless[i], concat = True)["positions"] for i in dashless if i != human}
-                            all_pos = {i: get_aligned_positions([list(dashed[i]), []], all_pos[i]) for i in all_pos}
-                            for position in human_pos:
-                                site_counter = 1
-                                hit_counter = 1
-                                for species in all_pos:
-                                    if (dashed[species][position] != "N") and (dashed[species][position] not in unknown):
-                                        site_counter = site_counter + 1
-                                        if position in all_pos[species]:
-                                            hit_counter = hit_counter + 1
-                                if site_counter >= lower_threshold:
-                                    output_dict[site_counter].append(hit_counter)
-    for site_number in output_dict:
-        with open("{0}/{1}.csv".format(output_folder, site_number), "w") as out_file:
-            for count in output_dict[site_number]:
-                out_file.write(str(count))
-                out_file.write("\n")
 
 def mutation_to_motif(current_CDS, aligned_sequences, motifs, neighbours, neighbour_lengths, mutation_score, site_number):
     '''
@@ -1641,6 +1420,9 @@ def protein_alignment(fasta_id1, fasta_seq1, fasta_id2, fasta_seq2, phylip_id1, 
     AlignIO.write(alignment, phy_file_name,"phylip-sequential")
 
 def parse_degen(file_name):
+    '''
+    Parse a degenracy file into a convenient dictionary.
+    '''
     degen = rw.read_many_fields(file_name, "\t")
     degen = list_to_dict(degen, 0, 1)
     degen = {i: degen[i].split(",") for i in degen}
@@ -1691,7 +1473,9 @@ def parse_input_dict_line(line):
     return(idn, output_dict)
 
 def reencode_disruption_pairwise(alignment, positions, degen):
-    '''Take a pairwise alignment and re-encode in such a way that only motif-disrupting divergences are preserved.'''
+    '''
+    Take a pairwise alignment and re-encode in such a way that only motif-disrupting divergences are preserved.
+    '''
     stops = [["T", "G", "A"], ["T", "A", "A"], ["T", "A", "G"]]
     to_remove = []
     for site in positions:
@@ -1712,6 +1496,9 @@ def reencode_disruption_pairwise(alignment, positions, degen):
     return(alignment)
 
 def remove_degenerate_differences(aligned_sequences, aligned_positions, other_aligned_positions):
+    '''
+    Modify an alignment to neutralize differences that are not motif-disruptive.
+    '''
     positions_to_remove = []
     for pos, position in enumerate(other_aligned_positions):
         if position in aligned_positions:

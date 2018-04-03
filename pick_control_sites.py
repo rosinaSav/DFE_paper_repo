@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Pick roughly nucleotide-matched control sites for a set of motif hits.
+'''
+
 from bedtools_games import Feature_Set
 from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
@@ -14,14 +19,21 @@ import re
 import read_and_write as rw
 
 def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping_dict, anc_CG_file_name, high_CG = None, min_inf = None, macaque = False, comprehensive = False, from_model = False):
+    '''
+    Get a dictionary that says for each transcript which positions were ancestrally CpG/GpC.
+    '''
+    #if a file name hasn't been supplied or if the file with the supplied name doesn't exist, determine
+    #CpG positions again, otherwise just read them in from the file
     if not anc_CG_file_name or anc_CG_file_name == "None" or not os.path.exists(anc_CG_file_name):
         #you need several in case you have a high_CG dictionary
         pps = []
         for phy_file in phy_files:
             if subst_model == "JC69" or from_model:
+                #use an existing substitution model
                 arguments = ["phyloFit", "--init-model", model_file, "--out-root", outroot, "--subst-mod", subst_model,
                                        "--msa-format", "PHYLIP", "--post-probs", "--scale-only", phy_file]
             else:
+                #estimate a new model
                 arguments = ["phyloFit", "--out-root", outroot, "--subst-mod", subst_model,
                                        "--msa-format", "PHYLIP", "--tree", "DFE/full_tree.tree", "--post-probs", phy_file]
                 
@@ -30,17 +42,22 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
                 tuple_pos_lim = 2
                 shift_in_tuple = 0
             else:
+                #for dinucleotide models
                 block_size = 16
                 tuple_pos_lim = 3
                 shift_in_tuple = 9
-                        
+
+            #turn off when testing                        
             if min_inf:
                 arguments.extend(["-I", min_inf])
             results = run_process(arguments)
+            #read in posterior probabilities of having various nucelotides ancestrally
             pp_file = "{0}.postprob".format(outroot)
             pp = rw.read_many_fields(pp_file, " ")
             pp = [[j for j in i if j] for i in pp]
             pp = pp[2:]
+            #the posterior probability that you had a CpG at a position has to be greater
+            #than threshold for a position to be counted as ancestrally CpG
             threshold = 0.5
             #will be over-written if you're doing big tree
             human_pos = 0
@@ -69,16 +86,21 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
         #just to get the length
         example_pp = pps[0][list(pps[0].keys())[0]]
         for trans in tuples_mapping_dict:
+            #tuples_mapping_dict has the alignment tuple corresponding to each position
+            #because the phyloFit output is organized by tuples, not by positions
             anc_CG[trans] = []
             for node_pos in range(len(example_pp)):
+                #if you're using dinucleotides
                 if subst_model != "JC69":
                     for pos in sorted(tuples_mapping_dict[trans].keys())[1:]:
                         try:
                             pp_number = 0
+                            #if you're gonna produce different output dictionaries for high and low GC regions
                             if high_CG:
                                 if pos in high_CG[trans]:
                                     pp_number = 1
                             current_tuple = tuples_mapping_dict[trans][pos]
+                            #don't consider positions where there is an alignment gap for human
                             if current_tuple[human_pos] != "*":
 ##                                print(current_tuple)
 ##                                print(pps[pp_number])
@@ -86,8 +108,10 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
                                 if current_tuple in pps[pp_number]:
                                     current_pp = pps[pp_number][current_tuple][node_pos]
                                 else:
-                                    current_pp = pps[abs(pp_number - 1)][current_tuple][node_pos]                                
+                                    current_pp = pps[abs(pp_number - 1)][current_tuple][node_pos]
+                                #because it can be either GC or CG, hence 6 or 9
                                 if float(current_pp[6]) > threshold or float(current_pp[9]) > threshold:
+                                    #you're always testing the second member in the dinucleotide
                                     anc_CG[trans].append(pos - 1)
                                     anc_CG[trans].append(pos)
                         except KeyError:
@@ -96,6 +120,7 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
                             else:
                                 raise KeyError
                 else:
+                    #if you're using mononucleotides, you have to keep track of what the previous neuclotide was
                     C_prev = False
                     G_prev = False
                     for pos in sorted(tuples_mapping_dict[trans].keys()):
@@ -108,11 +133,13 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
                         current_tuple = tuples_mapping_dict[trans][pos]
                         if current_tuple[human_pos] != "*":
                             current_pp = pps[pp_number][current_tuple][node_pos]
+                            #if current is C and previous was G
                             if float(current_pp[1]) > threshold:
                                 if G_prev:
                                     anc_CG[trans].append(G_pos)
                                     anc_CG[trans].append(pos)
                                 current_C = True
+                            #if current is G and previous was C
                             if float(current_pp[2]) > threshold:
                                 if C_prev:
                                     anc_CG[trans].append(C_pos)
@@ -137,6 +164,7 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
                     file.write(to_write)
                     file.write("\n")
     else:
+        #parse
         anc_CG = rw.read_many_fields(anc_CG_file_name, "\t")
         anc_CG = [i for i in anc_CG if len(i) == 2]
         anc_CG = list_to_dict(anc_CG, 0, 1)
@@ -144,6 +172,10 @@ def get_ancestral_CG(outroot, subst_model, phy_files, model_file, tuples_mapping
     return(anc_CG)
 
 def get_CpG_dicts(CDSs, chroms, MSA_file_name_prefix, lengths, clean_names, phylip_data, fasta, anc_CG_file_name, high_CG_file_name, fs, macaque_anc = False, pseudoCG = False, comprehensive = False, subst_model = None, return_tuples = False, regions = False):
+    '''
+    Get two dictionaries, one that says for each transcript which positions are CpG/GpC in macaque
+    and one which positions were likely CpG/GpC in the human-macaque ancestor.
+    '''
     names, seqs = rw.read_fasta(fasta)
     #if you're gonna determine ancestral CpG positions from scratch rather than reading them in from an existing file
     #if you want to have the name of the file determined automatically
@@ -230,6 +262,9 @@ def get_CpG_dicts(CDSs, chroms, MSA_file_name_prefix, lengths, clean_names, phyl
         return(anc_CG_dict, macaque_CG_dict)
 
 def get_CpG_dicts_core(MSA_raw, lengths, phylip_data, CG_kmers, macaque_anc, macaque_CG_dict, high_CG, comprehensive = False, subst_model = None):
+    '''
+    Core for get_CpG_dicts above.
+    '''
     if not subst_model:
         subst_model = "JC69"
     #JC69 is mononucleotide-based, U2S is dinucleotide-based
@@ -271,7 +306,6 @@ def get_CpG_dicts_core(MSA_raw, lengths, phylip_data, CG_kmers, macaque_anc, mac
                     macaque_CG_pos = [re.finditer(i, macaque_sequence) for i in CG_kmers]
                     macaque_CG_pos = flatten([[(j.start(), j.end()) for j in i] for i in macaque_CG_pos])
                     macaque_CG_pos = flatten([list(range(i[0], i[1])) for i in macaque_CG_pos])
-                    #why is it necessary to join?!?
                     current_data = ["".join(current_seqs[i]) for i in sorted(phylip_data.keys())]
                     if high_CG:
                         current_high = ["".join([i for pos, i in enumerate(j) if pos in current_high_CG]) for j in current_data]
@@ -289,10 +323,14 @@ def get_CpG_dicts_core(MSA_raw, lengths, phylip_data, CG_kmers, macaque_anc, mac
     return(sequence_concat, macaque_CG_dict, tuples_mapping_dict)
 
 def get_tuples_mapping(sequences, dinucleotide = False):
+    '''
+    For each position in an alignment, return a string that has the nucleotide at that position in each of the species in the aligment.
+    '''
     tuples = ["".join([j[i] for j in sequences]) for i in range(len(sequences[0]))]
     tuples = [re.sub("N", "*", i) for i in tuples]
     tuples = [re.sub("-", "*", i) for i in tuples]
     if dinucleotide:
+        #separate the two tuples with an underscore
         old_tuples = tuples.copy()
         tuples = ["_".join([tuples[i - 1], tuples[i]]) for i in range(1, len(tuples))]
         tuples = ["_".join(["".join("*" for i in range(len(old_tuples[0]))), old_tuples[0]])] + tuples
@@ -300,6 +338,10 @@ def get_tuples_mapping(sequences, dinucleotide = False):
     return(tuples_mapping)
 
 def realign_high_CG(high_CG, human_seq):
+    '''
+    Convert high GC positions from coordinates in the unaligned sequence to coordinates in the
+    aligned sequence.
+    '''
     #the business with blocks is so you'd also include hyphens interleaved with the high CG positions
     CG_blocks = nc.contiguous_blocks(high_CG)
     current_high_CG_temp = conservation.get_aligned_positions([list(human_seq), ""], high_CG)
@@ -316,6 +358,11 @@ def realign_high_CG(high_CG, human_seq):
     return(current_high_CG)
 
 def region_CpG(mapping_dict, anc_CG_dict):
+    '''
+    Based on mapping_dict, which has the indices where the core/flank maps in the full CDS and
+    anc_CG_dict, which has the indices that were ancestrally CpG/GpC in the full CDS,
+    determine which positions were ancestrally CpG/GpC in the flank/core.
+    '''
     anc_CG_dict_regions = {}
     #loop over the cores/flanks
     for region in mapping_dict:
@@ -328,6 +375,9 @@ def region_CpG(mapping_dict, anc_CG_dict):
     return(anc_CG_dict_regions)
 
 def update_anc_CG(anc_CG_concat_full, anc_CG_concat, tuples_mapping_dict_full, tuples_mapping_dict):
+    '''
+    Update the full concatenated string (for determining ancestral CpG positions) with that from a single chromosome.
+    '''
     for pos, key in enumerate(list(anc_CG_concat.keys())):
         [anc_CG_concat_full[pos].append(i) for i in anc_CG_concat[key]]
     for trans in tuples_mapping_dict:
@@ -335,6 +385,9 @@ def update_anc_CG(anc_CG_concat_full, anc_CG_concat, tuples_mapping_dict_full, t
     return(anc_CG_concat_full, tuples_mapping_dict_full)
 
 def write_anc_CG(anc_CG_concat_full, anc_CG_file_name, clean_names, macaque_CG_dict, test_only = False):
+    '''
+    Write alignment for determining ancestral positions to file.
+    '''
     #remove the dummy when not using a high_CG_file
     anc_CG_concat_full = [i for i in anc_CG_concat_full if i != [['']]]
     phy_files = ["temp_data/temp_phy{0}.phy".format(random.random()) for i in anc_CG_concat_full]

@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Construct a site frequency spectrum that only considers motif-disrupting SNPs.
+'''
+
 from housekeeping import list_to_dict, parse_arguments, update_counter
 from mDFEest_input import get_SFS
 import nucleotide_comp as nc
@@ -6,25 +11,40 @@ import re
 import read_and_write as rw
 
 def check_disruption(motif_regex, current_seq, motifs, motif_lengths, fourfold_pos, full_SNPs, clean_SNPs, minor_alleles, trans, transitions_total, transitions_disr, hit_degen_file, to_remove):
+    '''
+    Check which SNPs are motif disrupting.
+    '''
     all_sites = []
     base_dict = {}
+    #write down transcript name
     hit_degen_file.write("{0}\t".format(trans))
+    #for each motif
     for pos, motif_reg in enumerate(motif_regex):
+        #find positions that overlap the motif
         positions = re.finditer(motif_reg, current_seq)
+        #for each match
         for obj in positions:
             span = obj.span()
+            #get hit positions
             current_pos = [i for i in range(span[0], span[0] + motif_lengths[pos])]
+            #restrict to 4fold degenerate sites
             clean_pos = [i for i in current_pos if i in fourfold_pos]
+            #if any hit positions remain
             if clean_pos:
                 current_motif = motifs[pos]
+                #for all hit positions
                 for site in clean_pos:
+                    #if the site overlaps with a SNPs
                     if (site in full_SNPs[trans]) or (trans not in to_remove) or (site not in to_remove[trans]):
                         if site not in base_dict:
                             base_dict[site] = []
                         all_sites.append(site)
+                        #get the index of the hit position in the motif
                         index = current_pos.index(site)
+                        #the base that is actually at that position
                         ref_allele = current_motif[index]
                         temp_motif = current_motif.copy()
+                        #try substituting in each of the bases and check whether that turns the motif into a non-motif
                         for base in nc._canon_bases_:
                             if base != ref_allele:
                                 transitions_total[ref_allele][base] = transitions_total[ref_allele][base] + 1
@@ -44,20 +64,37 @@ def check_disruption(motif_regex, current_seq, motifs, motif_lengths, fourfold_p
     return(all_sites, clean_SNPs, transitions_total, transitions_disr, hit_degen_file)
 
 def get_disrupt_bases(ref_allele, transitions):
+    '''
+    For each SNP, assign it as disruptive with the same probability as the frequency
+    of disruptive substitutions for all possible substitutions having the same reference and substitute allele.
+    Note that the latter frequencies are not based on actual substitutions/SNPs,
+    they are based on all potential substitutions (so any A site might potentially substitute to T, C or G).
+    '''
     disrupt_bases = []
     for base in nc._canon_bases_:
         if base != ref_allele:
+            #frequency at which this SNP would be disruptive in real data
             trans_prob = transitions[ref_allele][base]
+            #pick random bumber between 0 and 1. If it is below the probability,
+            #assign the SNP as disruptive
             picked = random.random()
             if picked < trans_prob:
                 disrupt_bases.append(base)
     return(disrupt_bases)
 
 def get_transitions(transitions_disr, transitions_total):
+    '''
+    Based on a dictionary of the form [base1][base2][count of substitutions] that stores how many of each
+    type of potential substitution would be motif disruptive and a similar dictionary that stores counts of all potential
+    substitutions, calculate the frequency at which each type of potential subsitution is disruptive.
+    '''
     transitions = {}
     for base in transitions_disr:
         transitions[base] = {}
         for base2 in transitions_disr[base]:
+            #if no such substitutions were observed,
+            #the probability of the substitution
+            #being disruptive is set at 0
             if transitions_total[base][base2] == 0:
                 transitions[base][base2] = 0
             else:
@@ -65,7 +102,13 @@ def get_transitions(transitions_disr, transitions_total):
     return(transitions)
 
 def parse_SNPs(trans_SNPs, clean_SNPs, full_SNPs, minor_alleles, trans):
+    '''
+    Parse an in-house SNP file into convenient dictionaries.
+    '''
     full_SNPs[trans] = {}
+    #for clean_SNPs you just add in the key at this stage and initialize
+    #a dictionary. The contents of that dictionary will be filled in later
+    #in check_disruption(...).
     clean_SNPs[trans] = {}
     minor_alleles[trans] = {}
     if trans_SNPs:
@@ -87,6 +130,8 @@ def main():
 
     names, seqs = rw.read_fasta(fasta)
 
+    #I use two different formats for storing sequence motifs,
+    #got to know which on it is
     if old_motif_format:
         motifs = rw.read_names(motif_file)[1:]
         print(len(motifs))
@@ -94,9 +139,14 @@ def main():
         motifs = rw.read_motifs(motif_file)
         motifs = sorted(list(set(flatten(list(motifs.values())))))
 
+    #get the lengths of the motifs and compile lookahead regexes
+    #that recognize the whole motif but only store the position of the first bases
+    #these will be needed when searchin for the motifs
     motif_lengths = [len(i) for i in motifs]
     motif_regex = nc.motif_to_regex(motifs)
 
+    #I'm gonna treat CG and GC as two 2-bp motifs, use the same code as wehn searching for, say,
+    #ESE motifs
     CG_2mers = ["CG", "GC"]
     CG_lengths = [2, 2]
     CG_regex = nc.motif_to_regex(CG_2mers)
@@ -106,10 +156,12 @@ def main():
     if ancestral:
         anc_pos = rw.read_pos(anc_file)
 
+    #read in hit and control positions
     controls = rw.read_pos(control_file)
     hit_file = re.sub("controls", "hits", control_file)
     hits = rw.read_pos(hit_file)
 
+    #read in SNP data
     SNPs = rw.read_many_fields(SNPs_file, "\t")
     #the second column in the SNPs file contains positions that need to be discarded from analysis because they contain unanalyzable SNP data
     to_remove = list_to_dict(SNPs, 0, 2)
@@ -128,6 +180,8 @@ def main():
     #the same as above but only counting those substitutions that would turn a motif into a non-motif
     transitions_disr = {i: {j: 0 for j in nc._canon_bases_} for i in nc._canon_bases_}
 
+    #this block of code filters the true SNPs to only leave those that are disruptive
+    #and also calculates the probability of being disruptive for all potential SNPs
     with open("{0}_degen.txt".format(hit_file), "w") as hit_degen_file:
         counter = 0
         for trans in names:
@@ -140,6 +194,7 @@ def main():
                 trans_SNPs, clean_SNPs, full_SNPs, minor_alleles = parse_SNPs(trans_SNPs, clean_SNPs, full_SNPs, minor_alleles, trans)
                 current_seq = seqs[names.index(trans)]
                 fourfold_pos = nc.get_4fold_deg(current_seq)
+                #CpG filtering
                 if human:
                     CG_pos = nc.get_motif_set_density(CG_regex, CG_lengths, current_seq, concat = True)["positions"]
                     fourfold_pos = [i for i in fourfold_pos if i not in CG_pos]
@@ -155,6 +210,9 @@ def main():
     transitions = get_transitions(transitions_disr, transitions_total)
     print(transitions)
 
+    #this block randomly assigns certain SNPs at simulant positions to be disruptive,
+    #with the probability of that happening proportional to the frequency with which potential substitutions
+    #of that nucleotide composition would be disruptive for true (motif) sites
     with open("{0}_degen.txt".format(control_file), "w") as control_degen_file:
         control_SNPs = {}
         counter = 0

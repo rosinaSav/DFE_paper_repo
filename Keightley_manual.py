@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Directly compare the frequency of segregating sites/mean allele frequency between hits and controls.
+'''
+
 from housekeeping import flatten, parse_arguments, print_elements, remove_file, run_process
 from INSIGHT import shuffle_dictionaries
 import numpy as np
@@ -7,6 +12,10 @@ import read_and_write as rw
 import scipy.stats
 
 def get_chisq_site_freq(hit_data, control_data):
+    '''
+    Use a chi-squared test to compare the proportion of polymorphic sites
+    among hits and controls.
+    '''
     total_hits = len(hit_data)
     total_controls = len(control_data)
     poly_hits = len([i for i in hit_data if i[2] != "M"])
@@ -23,11 +32,17 @@ def get_chisq_site_freq(hit_data, control_data):
     return((poly_hits/total_hits) - (poly_controls/total_controls))
 
 def get_data(file):
+    '''
+    Read in polymorphism data from an INSIGHT input file.
+    '''
     data = rw.read_many_fields(file, "\t")
     data = [i for i in data if i[0] == "site"]
     return(data)
 
 def get_mean_freq(SFS_file):
+    '''
+    Use a Mann-Whitney U-test to compare MAFs in hits vs controls.
+    '''
     SFS = rw.read_many_fields(SFS_file, " ")
     n = int(SFS[0][0])
     hit_freqs = flatten([[i/n for j in range(int(SFS[1][i]))] for i in range(1, len(SFS[1]))])
@@ -49,6 +64,8 @@ def main():
     true_hits = rw.read_pos(hit_file)
     true_controls = rw.read_pos(control_file)
 
+    #to store the original data in case this is a negative control and you will be shuffling
+    #hits and controls
     original_INSIGHT_hit_file = INSIGHT_hit_file
     original_INSIGHT_control_file = INSIGHT_control_file
 
@@ -59,15 +76,18 @@ def main():
         for trial in range(trials):
             to_write = "{0}\t".format(trial)
 
+            #if this is a negative control
             if shuffle:
                 INSIGHT_hit_file = re.sub("_0_", "_{0}_".format(trial), original_INSIGHT_hit_file)
                 INSIGHT_control_file = re.sub("_0_", "_{0}_".format(trial), original_INSIGHT_control_file)
                 temp_hits_file = "temp_data/temp_hits{0}.txt".format(random.random())
                 temp_controls_file = "temp_data/temp_controls{0}.txt".format(random.random())
+                #shuffle hits and controls
                 temp_hits, temp_controls = shuffle_dictionaries(true_hits, true_controls)
                 rw.write_pos(temp_hits, temp_hits_file)
                 rw.write_pos(temp_controls, temp_controls_file)
                 SFS_file = "temp_data/temp_SFS_file{0}.txt".format(random.random())
+                #generate an ISNIGHT input file that you could then use for the manual analysis
                 run_process(["python3", "mDFEest_input.py", temp_hits_file, temp_controls_file,
                              "general/1000genomes/filtered_hg38_85_pc_multiexon_Yoruban_SNPs_relative.txt", 216,
                              SFS_file])

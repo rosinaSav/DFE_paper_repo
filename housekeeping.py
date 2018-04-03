@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Module that contains generic utility functions that make life a bit easier.
+'''
+
 import argparse
 import itertools as it
 import multiprocessing as mp

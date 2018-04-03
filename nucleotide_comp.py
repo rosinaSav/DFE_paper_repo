@@ -1,3 +1,9 @@
+'''
+Author: Rosina Savisaar.
+Module containing functions that have to do with
+nucleotide composition, k-mer frquencies etc.
+'''
+
 from Bio.SeqUtils.CodonUsage import SynonymousCodons as _genetic_code_
 import csv
 from cython_func import calc_density_c, calc_density_for_concat_c, calc_density_for_concat_several_c
@@ -22,6 +28,8 @@ _IUPAC_dict_ = {"AG": "R", "CT": "Y", "CU": "Y", "CG": "S", "AT": "W", "AU": "W"
 _IUPAC_dict_reverse_ = {'B': 'CGT', 'N': 'ACGT', 'K': 'GT', 'Y': 'CT', 'M': 'AC',
                       'D': 'AGT', 'H': 'ACT', 'V': 'ACG', 'S': 'CG', 'W': 'AT', 'R': 'AG', "A": "A",
                       "T": "T", "U": "U", "G": "G", "C": "C"}
+
+fourfold_deg_list = fourfold_deg_list()
 
 #over-all composition of hg38 from get_base_comp(bases, "Genomes/hg38/hg38.fa")
 _genome_comp_dict_ = {'A': 0.295185715129424, 'G': 0.2047602545425745, 'T': 0.2961350003087717, 'C': 0.2039190300192298}
@@ -449,9 +457,14 @@ def fit_control_pos_to_hits(seq_names, counts_dict, hit_mononts_dict, bounds_dic
     return(result_names, counts, lengths, errors)
 
 def fit_control_pos_to_hits_wrapper(fasta, motifs, run_number, hit_file, control_file, anc_CG, macaque_CG, niter = None, verbose = False, verbose_detailed = False, brute_mapping = False, stepsize = None, fs = None, write_errors = False, alt_anc_CGs = None, nonsyn_hits = False, tuples_mapping = None, family_seed = None, leave_CG = False, remove_ancestral_CpG = False, remove_macaque_CpG = False, CG_gene_filter = False, pseudoCG = False, prone_sites = False, match_size = False):
+    '''
+    Pick control positions to match hit positions in nucleotide composition.
+    '''
 
     names, seqs = rw.read_fasta(fasta)
 
+    #prepare data: where the true hits are, how many of each mononucleotide they contain,
+    #what nucleotides you have available at potential control sites and what the relevant positions are
     true_pos_dict, hit_mononts_dict, counts_dict, true_lengths_dict, monont_pos_dict, bounds_dict = prepare_control_pos_for_hits(names, seqs, motifs, anc_CG, macaque_CG, brute_mapping = False, verbose_detailed = verbose_detailed, fs = fs, nonsyn_hits = nonsyn_hits, tuples_mapping = tuples_mapping, alt_anc_CGs = alt_anc_CGs, family_seed = family_seed, leave_CG = leave_CG, remove_ancestral_CpG = remove_ancestral_CpG, CG_gene_filter = CG_gene_filter, remove_macaque_CpG = remove_macaque_CpG, pseudoCG = False, match_size = match_size, prone_sites = prone_sites)
 
     print("Writing hit positions to file...")
@@ -471,11 +484,17 @@ def fit_control_pos_to_hits_wrapper(fasta, motifs, run_number, hit_file, control
     run_dict = {}
     skews = []
 
+    #options for optimization
     options = {"verbose": verbose, "niter": niter, "stepsize": stepsize}
 
+    #we're gonna run the optimization run_number times and pick the run that led to the least skewed divergences from
+    #the nucleotide composition of the hits
+    #(the optimization algorithm minimizes absolute error but in this second step, we minimize skew)
     for run in range(run_number):
         run_dict[run] = {"names": [], "counts": [], "lengths": [], "errors": []}
-        
+
+        #run optimization once (separately for each transcript, allowing you to parallelize
+        #across transcripts)
         results = run_in_parallel(names, ["foo", counts_dict, hit_mononts_dict, bounds_dict, run, true_lengths_dict, options], fit_control_pos_to_hits, workers = 20)
         for result in results:
             current_result = result.get()
@@ -484,9 +503,12 @@ def fit_control_pos_to_hits_wrapper(fasta, motifs, run_number, hit_file, control
             run_dict[run]["lengths"].extend(current_result[2])
             run_dict[run]["errors"].extend(current_result[3])
 
+        #skew, defined as the number of transcripts that have positive error - the number of
+        #transcripts that have negative error for the current base, summed across the four bases
         skew = np.sum([abs(len([i[j] for i in run_dict[run]["errors"] if i[j] > 0]) - len([i[j] for i in run_dict[run]["errors"] if i[j] < 0])) for j in range(4)])
         skews.append(skew)
 
+    #pick run with lowest skew
     best_run = skews.index(np.min(skews))
     print(skews)
     print(best_run)
@@ -2341,5 +2363,3 @@ def write_third_position_bases(usage_dict, output_file):
                 to_write.append(str(usage_dict[position][base]))
             file.write(",".join(to_write))
             file.write("\n")
-
-fourfold_deg_list = fourfold_deg_list()

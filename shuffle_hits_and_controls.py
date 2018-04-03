@@ -1,3 +1,8 @@
+'''
+Author: Rosina Savisaar.
+Take a hits file and a control file and shuffle which elements are in which.
+'''
+
 from housekeeping import parse_arguments
 from INSIGHT import reduce_dict
 import numpy as np
@@ -11,6 +16,7 @@ def main():
     hits = rw.read_pos(input_hits)
     controls = rw.read_pos(input_controls)
 
+    #if you need to reduce the hit and control position dictionary sizes by a specified proportion
     if hit_reduce > 0:
         hits = reduce_dict(hits, hit_reduce)
         controls = reduce_dict(controls, control_reduce)
@@ -21,7 +27,7 @@ def main():
             for gene in hits:
                 hit_length = len(hits[gene])
                 combined = hits[gene] + controls[gene]
-                current_hits_o = sorted(np.random.choice(combined, size = hit_length, replace = False))
+                current_hits_o = sorted(np.random.choice(combined, reduce_dictsize = hit_length, replace = False))
                 current_controls_o = sorted([i for i in combined if i not in current_hits_o])
                 hits_o.write("{0}\t{1}\n".format(gene, ",".join([str(i) for i in current_hits_o])))
                 controls_o.write("{0}\t{1}\n".format(gene, ",".join([str(i) for i in current_controls_o])))
